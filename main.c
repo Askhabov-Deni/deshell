@@ -99,54 +99,8 @@ void conveyor(char *command) {
     }
 }
 
-// Функция для выполнения команды
-void execute_command(char *command) {
-    
-    if (strchr(command, '|')) {
-        conveyor(command);
-        return;
-    }
 
-    char *args[MAX_ARGS];
-    int argc = 0;
-    char *token = strtok(command, " ");
-
-    // Разбиваем команду на аргументы
-    while (token != NULL && argc < MAX_ARGS - 1) {
-        args[argc++] = token;
-        token = strtok(NULL, " ");
-    }
-    args[argc] = NULL;
-
-    // Проверка на наличие перенаправлений
-    for (int i = 0; i < argc; i++) {
-        if (strcmp(args[i], ">") == 0) { 
-            args[i] = NULL;
-            redirect_output(args[i + 1]);
-            break;
-        } else if (strcmp(args[i], ">>") == 0) {
-            args[i] = NULL;
-            append_output(args[i + 1]);
-            break;
-        } else if (strcmp(args[i], "<") == 0) { 
-            args[i] = NULL;
-            redirect_input(args[i + 1]);
-            break;
-        }
-    }
-
-    pid_t pid = fork();
-    if (pid == 0) { // Дочерний процесс
-        execvp(args[0], args);
-        perror("Ошибка выполнения команды");
-        exit(EXIT_FAILURE);
-    } else { // Родительский процесс
-        int status;
-        waitpid(pid, &status, 0);
-    }
-}
-
-// Функция для разбиения строки на команды по разделителю `;`
+// Разделение команд
 void split_commands(char *input, char *commands[], int *num_commands) {
     char *token = strtok(input, ";");
     *num_commands = 0;
@@ -154,6 +108,54 @@ void split_commands(char *input, char *commands[], int *num_commands) {
     while (token != NULL) {
         commands[(*num_commands)++] = token;
         token = strtok(NULL, ";");
+    }
+}
+
+// Функция для выполнения команды
+void execute_command(char *command) {
+    int is_background = 0;
+
+    // Проверяем, заканчивается ли команда на &
+    size_t len = strlen(command);
+    if (len > 0 && command[len - 1] == '&') {
+        is_background = 1;
+        command[len - 1] = '\0'; // Убираем символ &
+    }
+
+    // Проверяем на наличие пайплайнов
+    if (strchr(command, '|')) {
+        conveyor(command);
+        return;
+    }
+
+    // Разделяем команду на аргументы
+    char *args[MAX_ARGS];
+    int argc = 0;
+    char *token = strtok(command, " ");
+    while (token != NULL && argc < MAX_ARGS - 1) {
+        args[argc++] = token;
+        token = strtok(NULL, " ");
+    }
+    args[argc] = NULL;
+
+    // Создаём процесс для выполнения команды
+    pid_t pid = fork();
+    if (pid == 0) { // Дочерний процесс
+        execvp(args[0], args);
+        perror("Ошибка выполнения команды");
+        exit(EXIT_FAILURE);
+    } else if (pid > 0) { // Родительский процесс
+        if (!is_background) {
+            // Ожидание завершения процесса, если это не фоновая команда
+            int status;
+            waitpid(pid, &status, 0);
+        } else {
+            // Если команда в фоне, выводим PID дочернего процесса
+            printf("Процесс запущен в фоне с PID: %d\n", pid);
+        }
+    } else {
+        perror("Ошибка создания процесса");
+        exit(EXIT_FAILURE);
     }
 }
 
